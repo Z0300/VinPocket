@@ -11,6 +11,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options)
     public DbSet<Expense> Expenses => Set<Expense>();
     public DbSet<Income> Incomes => Set<Income>();
     public DbSet<Budget> Budgets => Set<Budget>();
+    public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
