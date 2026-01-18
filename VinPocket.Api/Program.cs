@@ -1,3 +1,4 @@
+using FluentValidation;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Migrations;
@@ -42,6 +43,7 @@ builder.Services.AddAuthorization();
 
 builder.Services.AddScoped<TokenProvider>();
 builder.Services.AddHttpContextAccessor();
+builder.Services.AddValidatorsFromAssembly(typeof(Program).Assembly);
 
 var app = builder.Build();
 
