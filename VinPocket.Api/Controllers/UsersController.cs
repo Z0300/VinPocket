@@ -1,7 +1,6 @@
 ﻿using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
-using System.Security.Claims;
 using VinPocket.Api.Contracts.Users;
 using VinPocket.Api.Data;
 using VinPocket.Api.Models;
@@ -15,8 +14,7 @@ namespace VinPocket.Api.Controllers;
 
 public class UsersController(
     AppDbContext context,
-    TokenProvider tokenProvider,
-    IHttpContextAccessor httpContextAccessor) : ControllerBase
+    TokenProvider tokenProvider) : ControllerBase
 {
     [AllowAnonymous]
     [HttpPost("register")]
@@ -76,16 +74,11 @@ public class UsersController(
     [HttpDelete("logout")]
     public async Task<ActionResult<UserLoginResponse>> Logout()
     {
-        var currentUserId = Guid.TryParse(
-          httpContextAccessor.HttpContext?.User.FindFirstValue(ClaimTypes.NameIdentifier),
-          out var parsed)
-          ? parsed
-          : Guid.Empty;
+        Guid userId = User.GetUserId();
 
         await context.RefreshTokens
-           .Where(r => r.UserId == currentUserId)
+           .Where(r => r.UserId == userId)
            .ExecuteDeleteAsync();
-
 
         return NoContent();
     }
