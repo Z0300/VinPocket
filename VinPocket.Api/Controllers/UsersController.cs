@@ -1,6 +1,7 @@
 ﻿using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using System.Security.Claims;
 using VinPocket.Api.Contracts.Users;
 using VinPocket.Api.Data;
 using VinPocket.Api.Models;
@@ -11,9 +12,13 @@ namespace VinPocket.Api.Controllers;
 
 [ApiController]
 [Route("api/users")]
-[AllowAnonymous]
-public class UsersController(AppDbContext context, TokenProvider tokenProvider) : ControllerBase
+
+public class UsersController(
+    AppDbContext context,
+    TokenProvider tokenProvider,
+    IHttpContextAccessor httpContextAccessor) : ControllerBase
 {
+    [AllowAnonymous]
     [HttpPost("register")]
     public async Task<ActionResult<UserRegistrationResponse>> Register([FromBody] UserRegistrationRequest request, CancellationToken cancellationToken)
     {
@@ -35,6 +40,7 @@ public class UsersController(AppDbContext context, TokenProvider tokenProvider) 
         });
     }
 
+    [AllowAnonymous]
     [HttpPost("login")]
     public async Task<ActionResult<UserLoginResponse>> Login([FromBody] UserLoginRequest request, CancellationToken cancellationToken)
     {
@@ -64,5 +70,23 @@ public class UsersController(AppDbContext context, TokenProvider tokenProvider) 
         await context.SaveChangesAsync(cancellationToken);
 
         return Ok(new UserLoginResponse { AccessToken = access, RefreshToken = refreshToken });
+    }
+
+    [Authorize]
+    [HttpDelete("logout")]
+    public async Task<ActionResult<UserLoginResponse>> Logout()
+    {
+        var currentUserId = Guid.TryParse(
+          httpContextAccessor.HttpContext?.User.FindFirstValue(ClaimTypes.NameIdentifier),
+          out var parsed)
+          ? parsed
+          : Guid.Empty;
+
+        await context.RefreshTokens
+           .Where(r => r.UserId == currentUserId)
+           .ExecuteDeleteAsync();
+
+
+        return NoContent();
     }
 }
