@@ -1,4 +1,5 @@
-﻿using Microsoft.AspNetCore.Authorization;
+﻿using FluentValidation;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using VinPocket.Api.Contracts.Users;
@@ -18,8 +19,23 @@ public class UsersController(
 {
     [AllowAnonymous]
     [HttpPost("register")]
-    public async Task<ActionResult<UserRegistrationResponse>> Register([FromBody] UserRegistrationRequest request, CancellationToken cancellationToken)
+    public async Task<ActionResult<UserRegistrationResponse>> Register(
+        [FromBody] UserRegistrationRequest request, 
+        IValidator<UserRegistrationRequest> validator,
+        CancellationToken cancellationToken)
     {
+
+        var validationResult = await validator.ValidateAsync(request, cancellationToken);
+
+        if (!validationResult.IsValid)
+        {
+            var errors = validationResult.Errors
+                .GroupBy(x => x.PropertyName)
+                .ToDictionary(g => g.Key, g => g.Select(x => x.ErrorMessage).ToArray());
+
+            return BadRequest(errors);
+        }
+
         var newUser = new User
         {
             Name = request.Name,
@@ -40,8 +56,23 @@ public class UsersController(
 
     [AllowAnonymous]
     [HttpPost("login")]
-    public async Task<ActionResult<UserLoginResponse>> Login([FromBody] UserLoginRequest request, CancellationToken cancellationToken)
+    public async Task<ActionResult<UserLoginResponse>> Login(
+        [FromBody] UserLoginRequest request,
+        IValidator<UserLoginRequest> validator,
+        CancellationToken cancellationToken)
     {
+
+        var validationResult = await validator.ValidateAsync(request, cancellationToken);
+
+        if (!validationResult.IsValid)
+        {
+            var errors = validationResult.Errors
+                .GroupBy(x => x.PropertyName)
+                .ToDictionary(g => g.Key, g => g.Select(x => x.ErrorMessage).ToArray());
+
+            return BadRequest(errors);
+        }
+
         var user = await context.Users
             .AsNoTracking()
             .SingleOrDefaultAsync(x => x.Email == request.Email, cancellationToken);
