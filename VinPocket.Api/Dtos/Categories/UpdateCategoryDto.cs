@@ -1,0 +1,7 @@
+﻿namespace VinPocket.Api.Dtos.Categories;
+
+public sealed record UpdateCategoryDto
+{
+    public Guid Id { get; set; }
+    public required string Name { get; set; }
+};

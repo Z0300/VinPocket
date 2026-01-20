@@ -1,4 +1,4 @@
-﻿namespace VinPocket.Api.Contracts.Users;
+﻿namespace VinPocket.Api.Dtos.Users;
 
 public class UserRegistrationResponse
 {
