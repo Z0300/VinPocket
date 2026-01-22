@@ -1,9 +1,13 @@
 ﻿using FluentValidation;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using VinPocket.Api.Common.Auth;
 using VinPocket.Api.Data;
-using VinPocket.Api.Dtos.Users;
+using VinPocket.Api.Dtos.Auth;
+using VinPocket.Api.Dtos.Budgets;
+using VinPocket.Api.Extensions;
 using VinPocket.Api.Models;
 using VinPocket.Api.Utilities;
 using BC = BCrypt.Net.BCrypt;
@@ -21,100 +25,84 @@ public sealed class UsersController(
     [HttpPost("register")]
     [EndpointSummary("Register a new user")]
     [EndpointDescription("Creates a new user account with the provided registration details and returns access tokens for immediate authentication.")]
-    [ProducesResponseType<UserRegistrationResponse>(StatusCodes.Status200OK)]
+    [ProducesResponseType<AccessTokensDto>(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status409Conflict)]
-    public async Task<ActionResult<UserRegistrationResponse>> Register(
-        [FromBody] UserRegistrationRequestDto request,
-        IValidator<UserRegistrationRequestDto> validator,
+    public async Task<ActionResult<AccessTokensDto>> Register(
+        RegisterUserDto registerUserDto,
+        IValidator<RegisterUserDto> validator,
         CancellationToken cancellationToken)
     {
 
-        var validationResult = await validator.ValidateAsync(request, cancellationToken);
+        await validator.ValidateAndThrowAsync(registerUserDto, cancellationToken);
 
-        if (!validationResult.IsValid)
-        {
-            var errors = validationResult.Errors
-                .GroupBy(x => x.PropertyName)
-                .ToDictionary(g => g.Key, g => g.Select(x => x.ErrorMessage).ToArray());
-
-            return BadRequest(errors);
-        }
-
-        bool isEmailTaken = await context.Users.SingleOrDefaultAsync(x => x.Email == request.Email, cancellationToken) is not null;
+        bool isEmailTaken = await context.Users
+            .SingleOrDefaultAsync(x => x.Email == registerUserDto.Email, cancellationToken) is not null;
 
         if (isEmailTaken)
         {
-            return Problem(detail: $"Email '{request.Email}' is already taken",
+            return Problem(detail: $"Email '{registerUserDto.Email}' is already taken",
                 statusCode: StatusCodes.Status409Conflict);
         }
 
-        var newUser = new User
-        {
-            Name = request.Name,
-            Email = request.Email,
-            PasswordHash = BC.EnhancedHashPassword(request.Password)
-        };
+        User user = registerUserDto.ToEntity();
 
-        context.Users.Add(newUser);
+        context.Users.Add(user);
         await context.SaveChangesAsync(cancellationToken);
 
-        return Ok(new UserRegistrationResponse
+        AccessTokensDto accessTokens = tokenProvider.Create(user);
+
+        var rt = new RefreshToken
         {
-            Id = newUser.Id,
-            Name = newUser.Name,
-            Email = newUser.Email
-        });
+            Id = $"r_{Guid.CreateVersion7()}",
+            Token = accessTokens.RefreshToken,
+            UserId = user.Id,
+            ExpiresAt = DateTime.UtcNow.AddDays(1),
+        };
+
+        context.RefreshTokens.Add(rt);
+        await context.SaveChangesAsync(cancellationToken);
+
+        return Ok(accessTokens);
     }
 
     [AllowAnonymous]
     [HttpPost("login")]
     [EndpointSummary("Authenticate user")]
     [EndpointDescription("Authenticates a user with their email and password, returning access and refresh tokens upon successful login.")]
-    [ProducesResponseType<UserLoginResponseDto>(StatusCodes.Status200OK)]
+    [ProducesResponseType<AccessTokensDto>(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-    public async Task<ActionResult<UserLoginResponseDto>> Login(
-        [FromBody] UserLoginRequestDto request,
-        IValidator<UserLoginRequestDto> validator,
+    public async Task<ActionResult<AccessTokensDto>> Login(
+        LoginUserDto loginUserDto,
+        IValidator<LoginUserDto> validator,
         CancellationToken cancellationToken)
     {
 
-        var validationResult = await validator.ValidateAsync(request, cancellationToken);
-
-        if (!validationResult.IsValid)
-        {
-            var errors = validationResult.Errors
-                .GroupBy(x => x.PropertyName)
-                .ToDictionary(g => g.Key, g => g.Select(x => x.ErrorMessage).ToArray());
-
-            return BadRequest(errors);
-        }
+        await validator.ValidateAndThrowAsync(loginUserDto, cancellationToken);
 
         var user = await context.Users
             .AsNoTracking()
-            .SingleOrDefaultAsync(x => x.Email == request.Email, cancellationToken);
+            .SingleOrDefaultAsync(x => x.Email == loginUserDto.Email, cancellationToken);
 
         if (user is null)
             return Unauthorized();
 
-        if (!BC.EnhancedVerify(request.Password, user.PasswordHash))
+        if (!BC.EnhancedVerify(loginUserDto.Password, user.PasswordHash))
             return Unauthorized();
 
-        var access = tokenProvider.Create(user);
-
-        var (refreshToken, expiresAt) = tokenProvider.GenerateRefreshToken();
+        AccessTokensDto accessTokens = tokenProvider.Create(user);
 
         var rt = new RefreshToken
         {
-            Id = Guid.NewGuid(),
-            Token = refreshToken,
+            Id = $"r_{Guid.CreateVersion7()}",
+            Token = accessTokens.RefreshToken,
             UserId = user.Id,
-            ExpiresAt = expiresAt
+            ExpiresAt = DateTime.UtcNow.AddDays(1),
         };
 
         context.RefreshTokens.Add(rt);
         await context.SaveChangesAsync(cancellationToken);
 
-        return Ok(new UserLoginResponseDto { AccessToken = access, RefreshToken = refreshToken });
+        return Ok(accessTokens);
     }
 
     [Authorize]
@@ -122,9 +110,9 @@ public sealed class UsersController(
     [EndpointSummary("Revoke user's token")]
     [EndpointDescription("Logout user and revoke all refresh tokens in the database.")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
-    public async Task<ActionResult<UserLoginResponseDto>> Logout()
+    public async Task<ActionResult<AccessTokensDto>> Logout()
     {
-        Guid userId = User.GetUserId();
+        string? userId = User.GetUserId();
 
         await context.RefreshTokens
            .Where(r => r.UserId == userId)

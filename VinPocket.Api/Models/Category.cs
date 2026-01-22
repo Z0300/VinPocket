@@ -2,7 +2,9 @@
 
 public class Category
 {
-    public Guid Id { get; set; }
+    public required string Id { get; set; }
     public required string Name { get; set; }
-    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+    public DateTime CreatedAt { get; set; }
+
+    public static string CreateNewId() => $"c_{Guid.CreateVersion7()}";
 }

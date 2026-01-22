@@ -1,32 +1,43 @@
-﻿using Microsoft.IdentityModel.JsonWebTokens;
+﻿using Microsoft.Extensions.Options;
+using Microsoft.IdentityModel.JsonWebTokens;
 using Microsoft.IdentityModel.Tokens;
 using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text;
+using VinPocket.Api.Common.Auth;
+using VinPocket.Api.Configurations;
+using VinPocket.Api.Dtos.Auth;
 using VinPocket.Api.Models;
 
 namespace VinPocket.Api.Utilities;
 
-public sealed class TokenProvider(IConfiguration configuration)
+public sealed class TokenProvider(IOptions<JwtAuthOptions> options)
 {
-    public string Create(User user)
+    private readonly JwtAuthOptions _jwtAuthOptions = options.Value;
+    public AccessTokensDto Create(User user)
     {
-        var secretKey = configuration.GetValue<string>("Jwt:Secret");
-        var securityKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(secretKey!));
+        return new(GenerateToken(user), GenerateRefreshToken());
+    }
 
-        var credentials = new SigningCredentials(securityKey, SecurityAlgorithms.HmacSha256);
+    public string GenerateToken(User user)
+    {
+        SymmetricSecurityKey securityKey = new(Encoding.UTF8.GetBytes(_jwtAuthOptions.Key!));
+        SigningCredentials credentials = new(securityKey, SecurityAlgorithms.HmacSha256);
+
+        List<Claim> claims =
+       [
+           new(JwtRegisteredClaimNames.Sub, user.Id),
+           new(JwtRegisteredClaimNames.Email, user.Email),
+           new Claim(JwtCustomClaimNames.Role, user.Role)
+        ];
 
         var tokenDescriptor = new SecurityTokenDescriptor
         {
-            Subject = new ClaimsIdentity(
-            [
-                new Claim(ClaimTypes.NameIdentifier, user.Id.ToString()),
-                new Claim(ClaimTypes.Email, user.Email)
-            ]),
-            Expires = DateTime.UtcNow.AddMinutes(configuration.GetValue<int>("Jwt:ExpiryInMinutes")),
+            Issuer = _jwtAuthOptions.Issuer,
+            Audience = _jwtAuthOptions.Audience,
+            Subject = new ClaimsIdentity(claims),
             SigningCredentials = credentials,
-            Issuer = configuration.GetValue<string>("Jwt:Issuer"),
-            Audience = configuration.GetValue<string>("Jwt:Audience"),
+            Expires = DateTime.UtcNow.AddMinutes(_jwtAuthOptions.ExpirationInMinutes),
         };
 
         var handler = new JsonWebTokenHandler();
@@ -36,11 +47,10 @@ public sealed class TokenProvider(IConfiguration configuration)
         return token;
     }
 
-    public (string Token, DateTime ExpiresAt) GenerateRefreshToken()
+    private static string GenerateRefreshToken()
     {
-        var randomBytes = RandomNumberGenerator.GetBytes(64);
-        var token = Convert.ToBase64String(randomBytes);
-        var expires = DateTime.UtcNow.AddDays(configuration.GetValue<int>("Jwt:RefreshTokenInDays"));
-        return (token, expires);
+        byte[] guidBytes = Encoding.UTF8.GetBytes(Guid.CreateVersion7().ToString());
+        byte[] randomBytes = RandomNumberGenerator.GetBytes(32);
+        return Convert.ToBase64String([.. guidBytes, .. randomBytes]);
     }
 }

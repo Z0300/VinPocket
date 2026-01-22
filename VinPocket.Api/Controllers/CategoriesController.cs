@@ -1,9 +1,12 @@
 ﻿using FluentValidation;
-using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using VinPocket.Api.Common.DataShaping;
+using VinPocket.Api.Common.Pagination;
 using VinPocket.Api.Data;
+using VinPocket.Api.Dtos.Budgets;
 using VinPocket.Api.Dtos.Categories;
+using VinPocket.Api.Extensions;
 using VinPocket.Api.Models;
 
 namespace VinPocket.Api.Controllers;
@@ -17,31 +20,85 @@ public sealed class CategoriesController(
     [HttpGet]
     [EndpointSummary("Get all categories")]
     [EndpointDescription("Retrieves a list of categories")]
-    [ProducesResponseType<CategoryResponseDto>(StatusCodes.Status200OK)]
-    public async Task<IActionResult> GetCategories(CancellationToken cancellationToken)
+    [ProducesResponseType<PaginationResult<CategoryDto>>(StatusCodes.Status200OK)]
+    public async Task<IActionResult> GetCategories(
+        CategoriesParameters categoriesParameters,
+        IValidator<CategoriesParameters> validator,
+        CancellationToken cancellationToken)
     {
-        var categories = await context.Categories
-            .AsNoTracking()
-            .Select(x => new CategoryResponseDto
-            {
-                Id = x.Id,
-                Name = x.Name,
-                CreatedAt = x.CreatedAt
-            })
-            .ToListAsync(cancellationToken);
 
-        return Ok(categories);
+        await validator.ValidateAndThrowAsync(categoriesParameters, cancellationToken);
+
+        var (sort, fields, page, pageSize) = categoriesParameters;
+
+        ShapedPaginationResult<CategoryDto> paginationResult = await context.Categories.AsNoTracking()
+            .SortByQueryString(sort, CategoryMappings.SortMapping.Mappings)
+            .Select(CategoryQueries.ProjectToDto())
+            .ToShapedPaginationResultAsync(page, pageSize, fields, cancellationToken);
+
+        return Ok(paginationResult);
     }
 
-    [HttpGet("{id:guid}")]
+    [HttpGet("{id}")]
     [EndpointSummary("Get category by id")]
-    [EndpointDescription("Retrieve a specific by id")]
-    [ProducesResponseType<CategoryResponseDto>(StatusCodes.Status200OK)]
-    public async Task<IActionResult> GetCategory(Guid id, CancellationToken cancellationToken)
+    [EndpointDescription("Retrieves a specific category by its unique identifier with optional field selection.")]
+    [ProducesResponseType<CategoryDto>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetCategory(
+        string id,
+        CategoryParameters categoryParameters,
+        CancellationToken cancellationToken)
     {
-        var category = await context.Categories
-            .AsNoTracking()
-            .Where(c => c.Id == id)
+        string? fields = categoryParameters.Fields;
+
+        ShapedResult<CategoryDto>? result = await context.Categories.AsNoTracking()
+            .Where(x => x.Id == id)
+            .Select(CategoryQueries.ProjectToDto())
+            .ToShapedFirstOrDefaultAsync(fields, cancellationToken);
+
+        return result is null ? NotFound() : Ok(result.Item);
+    }
+
+    [HttpPost]
+    [EndpointSummary("Create a new category")]
+    [EndpointDescription("Creates a new category with provided information")]
+    [ProducesResponseType<CategoryDto>(StatusCodes.Status201Created)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> CreateCategory(
+        CreateCategoryDto createCategoryDto,
+        IValidator<CreateCategoryDto> validator,
+        CancellationToken cancellationToken)
+    {
+        await validator.ValidateAndThrowAsync(createCategoryDto, cancellationToken);
+
+        Category category = createCategoryDto.ToEntity();
+
+        context.Categories.Add(category);
+        await context.SaveChangesAsync(cancellationToken);
+
+        CategoryDto categoryDto = category.ToDto();
+
+        return CreatedAtAction(
+            nameof(GetCategory),
+            new { id = categoryDto.Id },
+            categoryDto);
+    }
+
+    [HttpPut("{id}")]
+    [EndpointSummary("Update a category")]
+    [EndpointDescription("Update an existing category's details with provided information")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> UpdateCategory(
+        string id,
+        UpdateCategoryDto updateCategoryDto,
+        IValidator<UpdateCategoryDto> validator,
+        CancellationToken cancellationToken)
+    {
+        await validator.ValidateAndThrowAsync(updateCategoryDto, cancellationToken);
+
+        Category? category = await context.Categories
             .FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
 
         if (category is null)
@@ -49,95 +106,32 @@ public sealed class CategoriesController(
             return NotFound();
         }
 
-        return Ok(new CategoryResponseDto
-        {
-            Id = category.Id,
-            Name = category.Name,
-            CreatedAt = category.CreatedAt
-        });
-    }
+        category.UpdateFromDto(updateCategoryDto);
 
-    [HttpPost]
-    [EndpointSummary("Add category")]
-    [EndpointDescription("Add new category")]
-    [ProducesResponseType<CategoryResponseDto>(StatusCodes.Status200OK)]
-    public async Task<IActionResult> CreateCategory(
-        [FromBody] CreateCategoryDto request, 
-        IValidator<CreateCategoryDto> validator,
-        CancellationToken cancellationToken)
-    {
-        var validationResult = await validator.ValidateAsync(request, cancellationToken);
-
-        if (!validationResult.IsValid)
-        {
-            var errors = validationResult.Errors
-                .GroupBy(x => x.PropertyName)
-                .ToDictionary(g => g.Key, g => g.Select(x => x.ErrorMessage).ToArray());
-
-            return BadRequest(errors);
-        }
-
-        var category = new Category { Name = request.Name };
-
-        context.Categories.Add(category);
-        await context.SaveChangesAsync(cancellationToken);
-
-        return CreatedAtAction(
-            nameof(GetCategory),
-            new { id = category.Id },
-            category);
-    }
-
-    [HttpPut("{id:guid}")]
-    [EndpointSummary("Update category")]
-    [EndpointDescription("Update a category by id")]
-    [ProducesResponseType(StatusCodes.Status204NoContent)]
-    public async Task<IActionResult> UpdateCategory(
-        Guid id,
-        [FromBody] UpdateCategoryDto request,
-        IValidator<UpdateCategoryDto> validator,
-        CancellationToken cancellationToken)
-    {
-        var validationResult = await validator.ValidateAsync(request, cancellationToken);
-
-        if (!validationResult.IsValid)
-        {
-            var errors = validationResult.Errors
-                .GroupBy(x => x.PropertyName)
-                .ToDictionary(g => g.Key, g => g.Select(x => x.ErrorMessage).ToArray());
-
-            return BadRequest(errors);
-        }
-
-        var existingCategory = await context.Categories.FindAsync([id], cancellationToken);
-
-        if (existingCategory is null)
-        {
-            return NotFound();
-        }
-
-        existingCategory.Name = request.Name;
         await context.SaveChangesAsync(cancellationToken);
 
         return NoContent();
     }
 
-    [HttpDelete("{id:guid}")]
-    [EndpointSummary("Delete category")]
-    [EndpointDescription("Delete a category by id")]
+    [HttpDelete("{id}")]
+    [EndpointSummary("Delete a category")]
+    [EndpointDescription("Permanently removes a category from the system by its unique identifier.")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> DeleteCategory(
-       Guid id,
+       string id,
        CancellationToken cancellationToken)
     {
-        var existingCategory = await context.Categories.FindAsync([id], cancellationToken);
+        Category? category = await context.Categories
+            .FirstOrDefaultAsync(x => x.Id == id, cancellationToken);
 
-        if (existingCategory is null)
+        if (category is null)
         {
             return NotFound();
         }
 
-        context.Categories.Remove(existingCategory);
+        context.Categories.Remove(category);
+
         await context.SaveChangesAsync(cancellationToken);
 
         return NoContent();
