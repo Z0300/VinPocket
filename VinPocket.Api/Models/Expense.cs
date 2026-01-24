@@ -16,14 +16,13 @@ public class Expense
     public Category Category { get; set; } = null!;
 
     public static string CreateNewId() => $"e_{Guid.CreateVersion7()}";
+}
 
-    public enum Payment
-    {
-        Cash = 1,
-        CreditCard = 2,
-        DebitCard = 3,
-        EWallet = 4,
-        Other = 5
-    }
-
+public enum Payment
+{
+    Cash = 1,
+    CreditCard = 2,
+    DebitCard = 3,
+    EWallet = 4,
+    Other = 5
 }
