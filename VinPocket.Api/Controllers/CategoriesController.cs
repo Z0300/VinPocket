@@ -1,6 +1,8 @@
 ﻿using FluentValidation;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using VinPocket.Api.Common.Auth;
 using VinPocket.Api.Common.DataShaping;
 using VinPocket.Api.Common.Pagination;
 using VinPocket.Api.Data;
@@ -11,7 +13,7 @@ using VinPocket.Api.Models;
 
 namespace VinPocket.Api.Controllers;
 
-//[Authorize]
+[Authorize(Roles = Roles.Admin)]
 [ApiController]
 [Route("api/categories")]
 public sealed class CategoriesController(
