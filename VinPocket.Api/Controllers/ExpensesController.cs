@@ -13,8 +13,8 @@ using VinPocket.Api.Models;
 
 namespace VinPocket.Api.Controllers;
 
-[Route("api/expenses")]
 [ApiController]
+[Route("api/expenses")]
 [Authorize]
 public class ExpensesController(AppDbContext context) : ControllerBase
 {
@@ -22,6 +22,7 @@ public class ExpensesController(AppDbContext context) : ControllerBase
     [EndpointSummary("Get all expenses")]
     [EndpointDescription("Retrieves a list of expenses")]
     [ProducesResponseType<PaginationResult<ExpenseDto>>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public async Task<IActionResult> GetExpenses(
         ExpensesParameters expensesParameters,
         IValidator<ExpensesParameters> validator,
@@ -37,7 +38,7 @@ public class ExpensesController(AppDbContext context) : ControllerBase
             .Where(x => x.UserId == userId)
             .Where(x => expenseDate == null || x.ExpenseDate >= expenseDate)
             .Where(x => expenseDate == null || x.ExpenseDate <= expenseDate)
-            .SortByQueryString(sort, ExpensesMappings.SortMapping.Mappings)
+            .SortByQueryString(expensesParameters.Sort, ExpensesMappings.SortMapping.Mappings)
             .Select(ExpenseQueries.ProjectToDto())
             .ToShapedPaginationResultAsync(page, pageSize, fields, cancellationToken);
 
@@ -78,7 +79,7 @@ public class ExpensesController(AppDbContext context) : ControllerBase
         IValidator<CreateExpenseDto> validator,
         CancellationToken cancellationToken)
     {
-        string? userId = User.GetUserId();
+        string? userId = User.GetUserId();//User.GetUserId();
 
         await validator.ValidateAndThrowAsync(createExpenseDto, cancellationToken);
 

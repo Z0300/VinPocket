@@ -4,6 +4,6 @@ namespace VinPocket.Api.Dtos.Expenses;
 
 public sealed class ExpenseParameters
 {
-    [FromQuery]
+    [FromQuery(Name = "fields")]
     public string? Fields { get; init; }
 }
